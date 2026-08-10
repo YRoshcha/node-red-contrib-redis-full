@@ -1,0 +1,38 @@
+{
+  "name": "@yroshcha/node-red-contrib-redis-full",
+  "version": "1.0.0",
+  "description": "Production-oriented Redis palette for Node-RED: generic commands, Pub/Sub, scans, transactions, and Redis Streams consumer groups.",
+  "keywords": ["node-red", "redis", "redis-streams", "pubsub", "xadd", "xreadgroup", "ioredis"],
+  "license": "MIT",
+  "author": "yroshcha",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yroshcha/node-red-contrib-redis-full.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yroshcha/node-red-contrib-redis-full/issues"
+  },
+  "homepage": "https://github.com/yroshcha/node-red-contrib-redis-full#readme",
+  "main": "redis.js",
+  "files": ["redis.js", "redis.html", "README.md", "CHANGELOG.md", "LICENSE", "icons"],
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "node-red": ">=3 <6"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check redis.js && npm test",
+    "prepack": "npm run check",
+    "prepublishOnly": "npm run check"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.1"
+  },
+  "node-red": {
+    "nodes": {
+      "yroshcha-redis": "redis.js"
+    }
+  }
+}

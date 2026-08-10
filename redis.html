@@ -1,0 +1,896 @@
+<script type="text/javascript">
+  "use strict";
+  /*global RED*/
+
+  // Shared visual identity for all nodes in this package.
+  var REDIS_CATEGORY = 'Redis Full';
+  // Redis Full visual identity: light Node-RED palette background + Redis mark.
+  var REDIS_COLOR = '#FFFFFF';
+  var REDIS_ICON = 'redis.png';
+
+  // -----------------------------------------------------------------
+  // yroshcha-redis-config
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-config', {
+    category: 'config',
+    defaults: {
+      name: { value: '' },
+      host: { value: '127.0.0.1', required: true },
+      port: { value: 6379, required: true, validate: RED.validators.number() },
+      db: { value: 0, validate: RED.validators.number() },
+      username: { value: '' },
+      tls: { value: false },
+      cluster: { value: false },
+      connectTimeout: { value: 10000, validate: RED.validators.number() },
+      commandTimeout: { value: 30000, validate: RED.validators.number() },
+      retryMaxDelay: { value: 30000, validate: RED.validators.number() }
+    },
+    credentials: {
+      password: { type: 'password' }
+    },
+    label: function () {
+      return this.name || (this.host + ':' + this.port + '/' + this.db);
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-config">
+  <div class="form-row">
+    <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-config-input-name">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-host"><i class="fa fa-server"></i> Host</label>
+    <input type="text" id="node-config-input-host">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-port"><i class="fa fa-plug"></i> Port</label>
+    <input type="text" id="node-config-input-port">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-db"><i class="fa fa-database"></i> DB</label>
+    <input type="text" id="node-config-input-db">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-password"><i class="fa fa-key"></i> Password</label>
+    <input type="password" id="node-config-input-password">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-username">Username</label>
+    <input type="text" id="node-config-input-username" placeholder="optional Redis ACL user">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-tls" style="width:auto">
+      <input type="checkbox" id="node-config-input-tls" style="width:auto; margin-right:8px">TLS
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-cluster" style="width:auto">
+      <input type="checkbox" id="node-config-input-cluster" style="width:auto; margin-right:8px">Cluster mode
+    </label>
+  </div>
+  <div class="form-row"><hr></div>
+  <div class="form-row"><b>Reliability</b></div>
+  <div class="form-row">
+    <label for="node-config-input-connectTimeout" title="Connection timeout in milliseconds">Connect timeout</label>
+    <input type="text" id="node-config-input-connectTimeout">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-commandTimeout" title="Redis command timeout in milliseconds">Command timeout</label>
+    <input type="text" id="node-config-input-commandTimeout">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-retryMaxDelay" title="Maximum reconnect delay in milliseconds">Retry max</label>
+    <input type="text" id="node-config-input-retryMaxDelay">
+  </div>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-command — generic command
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-command', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    // `l` controls per-node canvas label visibility in Node-RED 5.
+    // onadd affects only a newly dragged node; saved user choices remain intact.
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      command: { value: 'GET' },
+      allowMsgCommand: { value: true },
+      block: { value: false }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis cmd',
+    label: function () {
+      return this.name || 'redis ' + (this.command || 'cmd').toLowerCase();
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-command">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-command"><i class="fa fa-terminal"></i> Command</label>
+    <input type="text" id="node-input-command" list="yroshcha-redis-command-list" placeholder="e.g. GET, HSET, ZADD, XADD, EVAL...">
+    <datalist id="yroshcha-redis-command-list">
+      <option value="GET"><option value="SET"><option value="SETEX"><option value="SETNX">
+      <option value="MGET"><option value="MSET"><option value="INCR"><option value="INCRBY">
+      <option value="APPEND"><option value="STRLEN">
+      <option value="HGET"><option value="HSET"><option value="HGETALL"><option value="HDEL">
+      <option value="HMGET"><option value="HINCRBY"><option value="HEXISTS">
+      <option value="LPUSH"><option value="RPUSH"><option value="LPOP"><option value="RPOP">
+      <option value="LRANGE"><option value="LLEN"><option value="BLPOP"><option value="BRPOP">
+      <option value="BRPOPLPUSH">
+      <option value="SADD"><option value="SREM"><option value="SMEMBERS"><option value="SISMEMBER">
+      <option value="SUNION"><option value="SINTER">
+      <option value="ZADD"><option value="ZRANGE"><option value="ZRANGEBYSCORE"><option value="ZREM">
+      <option value="ZINCRBY"><option value="ZSCORE">
+      <option value="XLEN"><option value="XRANGE"><option value="XREVRANGE"><option value="XPENDING">
+      <option value="XINFO STREAM"><option value="XINFO GROUPS"><option value="XTRIM">
+      <option value="XGROUP DESTROY"><option value="XGROUP DELCONSUMER"><option value="XDEL">
+      <option value="DEL"><option value="EXISTS"><option value="EXPIRE"><option value="TTL">
+      <option value="TYPE"><option value="RENAME"><option value="KEYS">
+      <option value="EVAL"><option value="EVALSHA"><option value="SCRIPT LOAD">
+      <option value="INFO"><option value="DBSIZE"><option value="FLUSHDB"><option value="WAIT">
+      <option value="GEOADD"><option value="GEOSEARCH"><option value="SETBIT"><option value="GETBIT">
+      <option value="PFADD"><option value="PFCOUNT">
+    </datalist>
+  </div>
+  <div class="form-row">
+    <label for="node-input-allowMsgCommand" title="Allow msg.command to override the configured command" style="width:auto">
+      <input type="checkbox" id="node-input-allowMsgCommand" style="width:auto; margin-right:8px">Allow msg.command
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-block" title="Use a dedicated Redis connection for blocking commands" style="width:auto">
+      <input type="checkbox" id="node-input-block" style="width:auto; margin-right:8px">Dedicated connection
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-command">
+  <p>Runs <b>any</b> Redis command through <code>ioredis.call()</code>.</p>
+  <p><code>msg.args</code> is an array of arguments. Compound commands such as <code>XINFO STREAM</code> are supported.</p>
+  <p>Enable <b>Block</b> for blocking commands (<code>BLPOP</code>, <code>BRPOP</code>, <code>WAIT</code>) to use a dedicated connection rather than occupy the shared config connection.</p>
+  <p>The raw ioredis result is placed in <code>msg.payload</code>.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-subscribe — Pub/Sub
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-subscribe', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      mode: { value: 'subscribe' },
+      channels: { value: '' }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis sub',
+    label: function () {
+      return this.name || 'redis ' + this.mode;
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-subscribe">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode">Mode</label>
+    <select id="node-input-mode">
+      <option value="subscribe">SUBSCRIBE (exact channels)</option>
+      <option value="psubscribe">PSUBSCRIBE (patterns)</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-channels">Channels</label>
+    <input type="text" id="node-input-channels" placeholder="comma-separated, e.g. app:notify, app:alerts">
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-subscribe">
+  <p>Subscribes with <code>SUBSCRIBE</code>/<code>PSUBSCRIBE</code> on a dedicated connection.</p>
+  <p>Output: <code>msg.topic</code>, <code>msg.payload</code>, and <code>msg.pattern</code> for pattern subscriptions.</p>
+  <p>Dynamic control: <code>msg.subscribe</code>/<code>msg.unsubscribe</code> are arrays of channels.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-multi — MULTI/EXEC
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-multi', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis multi',
+    label: function () {
+      return this.name || 'redis multi/exec';
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-multi">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-multi">
+  <p>Atomic transaction. <code>msg.commands = [["set","k","v"],["incr","c"]]</code> → <code>MULTI/EXEC</code>.</p>
+  <p>Output: <code>msg.payload</code> is an array of results. A command error is sent to the error handler.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-scan — SCAN/HSCAN/SSCAN/ZSCAN
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-scan', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      scanType: { value: 'SCAN' },
+      count: { value: 100, validate: RED.validators.number() }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis scan',
+    label: function () {
+      return this.name || 'redis ' + this.scanType.toLowerCase();
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-scan">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-scanType">Type</label>
+    <select id="node-input-scanType">
+      <option value="SCAN">SCAN (keys)</option>
+      <option value="HSCAN">HSCAN (hash fields)</option>
+      <option value="SSCAN">SSCAN (set members)</option>
+      <option value="ZSCAN">ZSCAN (sorted set members)</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-count">COUNT hint</label>
+    <input type="text" id="node-input-count">
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-scan">
+  <p>Full cursor-based non-blocking scan. HSCAN/SSCAN/ZSCAN require <code>msg.key</code>.</p>
+  <p>Output: <code>msg.payload</code> is an array; HSCAN/ZSCAN return <code>{member, value}</code>.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-out — XADD
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-out', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      streamKey: { value: '' },
+      maxlen: { value: '' },
+      approxTrim: { value: true },
+      unsafeTrim: { value: false }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis xadd',
+    label: function () {
+      return this.name || 'redis xadd ' + (this.streamKey || '');
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-out">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-streamKey">Stream key</label>
+    <input type="text" id="node-input-streamKey" placeholder="e.g. app:events">
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxlen">MAXLEN</label>
+    <input type="text" id="node-input-maxlen" placeholder="optional, e.g. 100000">
+  </div>
+  <div class="form-row">
+    <label for="node-input-approxTrim" title="Use approximate MAXLEN trimming (~)" style="width:auto">
+      <input type="checkbox" id="node-input-approxTrim" style="width:auto; margin-right:8px">Approx. trim
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-unsafeTrim" title="MAXLEN may delete records that are still pending; enable only with a retention plan" style="width:auto">
+      <input type="checkbox" id="node-input-unsafeTrim" style="width:auto; margin-right:8px">Allow unsafe MAXLEN trim
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-out">
+  <p>Runs <code>XADD</code>. <code>msg.payload</code> is a flat fields object. <code>msg.stream</code>/<code>msg.maxlen</code> override the configuration.</p>
+  <p><b>Production safety:</b> MAXLEN trimming is disabled until <b>Allow unsafe MAXLEN trim</b> or <code>msg.allowUnsafeTrim = true</code> is explicitly set. Trimming may remove an entry that is still in a consumer-group PEL.</p>
+  <p>Output: <code>msg.streamId</code>, <code>msg.stream</code>.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-in — XREADGROUP consumer
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-in', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      streamKey: { value: '', required: true },
+      group: { value: '', required: true },
+      consumer: { value: '' },
+      count: { value: 100, validate: RED.validators.number() },
+      blockMs: { value: 5000, validate: RED.validators.number() },
+      readIntervalMs: { value: 0, validate: RED.validators.number() },
+      rateLimitPerSecond: { value: 0, validate: RED.validators.number() },
+      batchWindowMs: { value: 0, validate: RED.validators.number() },
+      batchIntervalMs: { value: 0, validate: RED.validators.number() },
+      autoAck: { value: false },
+      startPaused: { value: false },
+      startId: { value: '$' },
+      maxPending: { value: 1000, required: true, validate: RED.validators.number() },
+      capacityPollMs: { value: 500, required: true, validate: RED.validators.number() },
+      capacityCheckIntervalMs: { value: 250, required: true, validate: RED.validators.number() },
+      autoClaim: { value: true },
+      reclaimIdleMs: { value: 60000, required: true, validate: RED.validators.number() },
+      reclaimIntervalMs: { value: 30000, required: true, validate: RED.validators.number() },
+      reclaimCount: { value: 100, required: true, validate: RED.validators.number() },
+      maxDeliveries: { value: 5, required: true, validate: RED.validators.number() },
+      deadLetterStream: { value: '' },
+      initialBackoffMs: { value: 500, validate: RED.validators.number() },
+      maxBackoffMs: { value: 30000, validate: RED.validators.number() },
+      backoffMultiplier: { value: 2, validate: RED.validators.number() },
+      pelAlertThreshold: { value: 0, validate: RED.validators.number() },
+      pelCheckIntervalMs: { value: 30000, validate: RED.validators.number() }
+    },
+    inputs: 0,
+    outputs: 1,
+    paletteLabel: 'redis xreadgroup',
+    label: function () {
+      return this.name || 'redis xreadgroup ' + (this.streamKey || '');
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-in">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-streamKey">Stream key</label>
+    <input type="text" id="node-input-streamKey" placeholder="e.g. app:events">
+  </div>
+  <div class="form-row">
+    <label for="node-input-group">Group</label>
+    <input type="text" id="node-input-group" placeholder="e.g. app-workers">
+  </div>
+  <div class="form-row">
+    <label for="node-input-consumer" title="Consumer name">Consumer</label>
+    <input type="text" id="node-input-consumer" placeholder="empty = hostname + node id">
+  </div>
+  <div class="form-row">
+    <label for="node-input-count">COUNT</label>
+    <input type="text" id="node-input-count">
+  </div>
+  <div class="form-row">
+    <label for="node-input-blockMs">BLOCK (ms)</label>
+    <input type="text" id="node-input-blockMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-readIntervalMs" title="Minimum delay between XREADGROUP calls; 0 means read as fast as Redis responds">Read interval (ms)</label>
+    <input type="text" id="node-input-readIntervalMs" placeholder="0 = no limit; 1000 = once/second">
+  </div>
+  <div class="form-row">
+    <label for="node-input-rateLimitPerSecond" title="Maximum messages delivered downstream per second; 0 means unlimited">Rate limit (msg/s)</label>
+    <input type="text" id="node-input-rateLimitPerSecond" placeholder="0 = unlimited">
+  </div>
+  <div class="form-row">
+    <label for="node-input-batchWindowMs" title="When greater than 0, emit a batch when COUNT is reached or this wait expires">Batch wait (ms)</label>
+    <input type="text" id="node-input-batchWindowMs" placeholder="0 = emit each message">
+  </div>
+  <div class="form-row">
+    <label for="node-input-batchIntervalMs" title="Minimum delay between emitted batches; 0 means no fixed pacing">Batch interval (ms)</label>
+    <input type="text" id="node-input-batchIntervalMs" placeholder="0 = no fixed pacing">
+  </div>
+  <div class="form-row">
+    <label for="node-input-startId" title="Start ID when a consumer group is created">Start ID</label>
+    <input type="text" id="node-input-startId" placeholder="$ = only new, 0 = from beginning">
+  </div>
+  <div class="form-row">
+    <label for="node-input-autoAck" title="Unsafe for asynchronous business processing; use redis xack downstream" style="width:auto">
+      <input type="checkbox" id="node-input-autoAck" style="width:auto; margin-right:8px">Auto ACK (unsafe)
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-startPaused" title="Do not call XREADGROUP after startup until redis streams API receives resume" style="width:auto">
+      <input type="checkbox" id="node-input-startPaused" style="width:auto; margin-right:8px">Start paused (wait for resume)
+    </label>
+  </div>
+
+  <div class="form-row"><hr></div>
+  <div class="form-row"><b>Reliability (advanced)</b></div>
+
+  <div class="form-row">
+    <label for="node-input-maxPending" title="Group-wide PEL ceiling; intake pauses when reached">Max pending</label>
+    <input type="text" id="node-input-maxPending">
+  </div>
+  <div class="form-row">
+    <label for="node-input-capacityPollMs" title="Wait between PEL capacity checks in milliseconds">Poll delay</label>
+    <input type="text" id="node-input-capacityPollMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-capacityCheckIntervalMs" title="How often PEL capacity is sampled while consuming, in milliseconds">PEL sample</label>
+    <input type="text" id="node-input-capacityCheckIntervalMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-autoClaim" title="Automatically reclaim abandoned messages from dead or stalled consumers" style="width:auto">
+      <input type="checkbox" id="node-input-autoClaim" style="width:auto; margin-right:8px">Auto recovery
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-reclaimIdleMs" title="A pending message must be idle this long before automatic reclaim, in milliseconds">Recovery idle</label>
+    <input type="text" id="node-input-reclaimIdleMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-reclaimIntervalMs" title="How often automatic recovery runs, in milliseconds">Recovery check</label>
+    <input type="text" id="node-input-reclaimIntervalMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-reclaimCount" title="Maximum abandoned messages claimed in one automatic recovery run">Recovery batch</label>
+    <input type="text" id="node-input-reclaimCount">
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxDeliveries" title="Move a repeatedly delivered message to the DLQ after this count; 0 disables">Max deliveries</label>
+    <input type="text" id="node-input-maxDeliveries">
+  </div>
+  <div class="form-row">
+    <label for="node-input-deadLetterStream" title="Defaults to &lt;stream&gt;:dlq; use the same Redis Cluster hash tag as the source stream">DLQ stream</label>
+    <input type="text" id="node-input-deadLetterStream" placeholder="empty = &lt;stream&gt;:dlq">
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-initialBackoffMs" title="Initial reconnect backoff in milliseconds">Initial delay</label>
+    <input type="text" id="node-input-initialBackoffMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxBackoffMs" title="Maximum reconnect backoff in milliseconds">Maximum delay</label>
+    <input type="text" id="node-input-maxBackoffMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-backoffMultiplier" title="Reconnect backoff multiplier">Multiplier</label>
+    <input type="text" id="node-input-backoffMultiplier">
+  </div>
+  <div class="form-row">
+    <label for="node-input-pelAlertThreshold" title="Pending Entries List alert threshold">PEL limit</label>
+    <input type="text" id="node-input-pelAlertThreshold" placeholder="0 = disabled">
+  </div>
+  <div class="form-row">
+    <label for="node-input-pelCheckIntervalMs" title="Pending Entries List check interval in milliseconds">PEL check</label>
+    <input type="text" id="node-input-pelCheckIntervalMs">
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-in">
+  <p>Consumer on a dedicated blocking connection. Creates its group with <code>MKSTREAM</code>. On startup it reads its own pending entries (<code>0</code>), then new entries (<code>&gt;</code>).</p>
+  <p><b>Production:</b> keep <b>Auto ACK</b> disabled and use <code>redis xack</code> only after business logic completes. Auto ACK can lose an event if the process fails after sending it downstream.</p>
+  <p><b>Backpressure:</b> intake stops when the group PEL reaches <b>Max pending</b>. After <b>Max deliveries</b>, an entry is atomically moved to the DLQ and ACKed. In Redis Cluster, source and DLQ must share a hash tag.</p>
+  <p><b>Read interval:</b> limits how often the node calls <code>XREADGROUP</code>, regardless of queue depth. <code>0</code> reads as fast as Redis responds; <code>1000</code> reads at most once per second; <code>60000</code> at most once per minute. <b>COUNT</b> still limits entries returned by each read.</p>
+  <p><b>Rate limit:</b> <b>Rate limit (msg/s)</b> limits messages delivered downstream. <code>0</code> is unlimited; for example, <code>500</code> limits average delivery to 500 messages per second. Redis reads may reserve entries in the PEL up to <b>Max pending</b> while the downstream rate is limited.</p>
+  <p><b>Batch wait:</b> with <b>Batch wait (ms)</b> set to <code>0</code>, each entry is emitted immediately. When it is greater than <code>0</code>, the node emits an array when either <b>COUNT</b> entries are collected or the wait expires. In batch mode, <code>msg.payload</code> and <code>msg.streamId</code> are arrays; <code>redis xack</code> accepts the ID array directly.</p>
+  <p><b>Batch interval:</b> sets the minimum time between emitted batches, regardless of queue depth. For exactly one batch of up to 50 entries per second, use <b>COUNT = 50</b> and <b>Batch interval = 1000</b>. If Batch wait is left at <code>0</code>, it follows the interval automatically.</p>
+  <p><b>Auto recovery:</b> enabled by default. The node periodically runs <code>XAUTOCLAIM</code> for entries left without ACK longer than <b>Recovery idle</b> by a dead or stalled consumer. The separate <code>redis xautoclaim</code> node remains available for manual recovery.</p>
+  <p><b>Worker control:</b> use <code>redis streams API</code> for global <code>pause</code>, <code>resume</code>, <code>status</code> and <code>drain</code>. The consumer node remains a clean source node.</p>
+  <p><b>Start paused:</b> creates or verifies the consumer group, but does not call <code>XREADGROUP</code> until a <code>resume</code> control request arrives. Use it to let a pod pass readiness checks before it accepts stream work.</p>
+  <p><b>Backoff/jitter:</b> after a loop failure, delay grows exponentially from <b>initial</b> to <b>max</b> (× <b>multiplier</b>) with up to +30% random jitter. It prevents an HPA pool from reconnecting in lockstep during a Redis outage, and resets after the first successful call.</p>
+  <p><b>PEL alert:</b> when <b>PEL alert threshold</b> is greater than 0, the node periodically checks <code>XPENDING</code>. Above the threshold it emits <code>node.warn</code> and shows a yellow status until the lag subsides.</p>
+  <p><b>Multi-pod / same host:</b> leave <b>Consumer</b> empty to generate <code>HOSTNAME-node.id</code>. This is unique across pods and across several consumer nodes in one Node-RED runtime. <u>Do not use the same static value</u> for multiple workers in one group.</p>
+  <p>Output: <code>msg.payload</code>, <code>msg.streamId</code>, <code>msg.stream</code>, <code>msg.group</code>, <code>msg.consumer</code>. With Batch wait enabled, payload and streamId are arrays.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-ack — XACK
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-ack', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      streamKey: { value: '' },
+      group: { value: '' },
+      deleteAfterAck: { value: false }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis xack',
+    label: function () {
+      return this.name || 'redis xack';
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-ack">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-streamKey">Stream key</label>
+    <input type="text" id="node-input-streamKey" placeholder="optional, else msg._streamKey">
+  </div>
+  <div class="form-row">
+    <label for="node-input-group">Group</label>
+    <input type="text" id="node-input-group" placeholder="optional, else msg._streamGroup">
+  </div>
+  <div class="form-row">
+    <label for="node-input-deleteAfterAck" title="Deletes the stream entry after ACK; use only when no other consumer group needs it" style="width:auto">
+      <input type="checkbox" id="node-input-deleteAfterAck" style="width:auto; margin-right:8px">Delete after ACK
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-ack">
+  <p>Runs <code>XACK</code>. <code>msg.streamId</code> can be one ID or an array. When Stream key or Group is empty, it uses <code>msg._streamKey</code> and <code>msg._streamGroup</code> emitted by <code>redis xreadgroup</code>.</p>
+  <p><b>Delete after ACK</b> also runs <code>XDEL</code>. Enable it only when replay and reading this stream from other consumer groups are not required. Override it per message with <code>msg.deleteAfterAck = true</code> or <code>false</code>.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-claim — XAUTOCLAIM
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-claim', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      streamKey: { value: '' },
+      group: { value: '' },
+      consumer: { value: '' },
+      minIdleMs: { value: 60000, validate: RED.validators.number() },
+      count: { value: 100, validate: RED.validators.number() },
+      maxMessages: { value: 1000, validate: RED.validators.number() }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis xautoclaim',
+    label: function () {
+      return this.name || 'redis xautoclaim';
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-claim">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-streamKey">Stream key</label>
+    <input type="text" id="node-input-streamKey">
+  </div>
+  <div class="form-row">
+    <label for="node-input-group">Group</label>
+    <input type="text" id="node-input-group">
+  </div>
+  <div class="form-row">
+    <label for="node-input-consumer" title="Consumer that receives claimed messages">Claim consumer</label>
+    <input type="text" id="node-input-consumer" placeholder="e.g. recovery-worker">
+  </div>
+  <div class="form-row">
+    <label for="node-input-minIdleMs" title="Minimum idle time in milliseconds">Min. idle</label>
+    <input type="text" id="node-input-minIdleMs">
+  </div>
+  <div class="form-row">
+    <label for="node-input-count" title="Maximum messages to claim per call">Claim count</label>
+    <input type="text" id="node-input-count">
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxMessages" title="Hard limit for messages returned by one recovery run">Run limit</label>
+    <input type="text" id="node-input-maxMessages">
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-claim">
+  <p>Runs from an input message (inject/timer). Claims entries left in the PEL longer than <code>minIdleMs</code>. One run is bounded by <b>Run limit</b> to avoid loading the whole PEL into Node-RED memory.</p>
+  <p>Output: <code>msg.payload</code> is an array of <code>{streamId, payload}</code>. Process entries and acknowledge them with <code>redis xack</code>.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-gc — remove dead consumer records
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-gc', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      streamKey: { value: '' },
+      group: { value: '' },
+      minIdleMs: { value: 600000, validate: RED.validators.number() }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis consumer gc',
+    label: function () {
+      return this.name || 'redis consumer gc';
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-gc">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-streamKey">Stream key</label>
+    <input type="text" id="node-input-streamKey" placeholder="optional, else msg.stream">
+  </div>
+  <div class="form-row">
+    <label for="node-input-group">Group</label>
+    <input type="text" id="node-input-group" placeholder="optional, else msg.group">
+  </div>
+  <div class="form-row">
+    <label for="node-input-minIdleMs" title="Minimum idle time before cleanup in milliseconds">Min. idle</label>
+    <input type="text" id="node-input-minIdleMs" placeholder="10 min default">
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-gc">
+  <p>Removes dead consumers listed by <code>XINFO CONSUMERS</code> with <code>XGROUP DELCONSUMER</code>.</p>
+  <p><b>Why:</b> each HPA pod restart creates a new consumer when the name uses <code>$HOSTNAME</code>, while old records remain in <code>XINFO CONSUMERS</code> until explicitly removed.</p>
+  <p><b>Safety:</b> only consumers with <code>pending = 0</code> and <code>idle</code> longer than <b>Min idle</b> are removed, so unprocessed entries and recently restarted active pods are not affected.</p>
+  <p>Run it from a scheduled <code>inject</code> node, for example once an hour, rather than as a permanent background process.</p>
+  <p>Output: <code>msg.payload = {removed: [...], kept: [...]}</code>.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-metrics — XINFO GROUPS + XPENDING snapshot
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-metrics', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      server: { type: 'yroshcha-redis-config', required: true },
+      streamKey: { value: '', required: true },
+      group: { value: '', required: true },
+      deadLetterStream: { value: '' }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis stream metrics',
+    label: function () {
+      return this.name || 'redis stream metrics';
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-metrics">
+  <div class="form-row">
+    <label for="node-input-server"><i class="fa fa-globe"></i> Server</label>
+    <input type="text" id="node-input-server">
+  </div>
+  <div class="form-row">
+    <label for="node-input-streamKey">Stream key</label>
+    <input type="text" id="node-input-streamKey" placeholder="e.g. app:events">
+  </div>
+  <div class="form-row">
+    <label for="node-input-group">Group</label>
+    <input type="text" id="node-input-group" placeholder="e.g. app-workers">
+  </div>
+  <div class="form-row">
+    <label for="node-input-deadLetterStream">DLQ stream</label>
+    <input type="text" id="node-input-deadLetterStream" placeholder="optional: e.g. app:events:dlq">
+  </div>
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-metrics">
+  <p>Collects a consumer-group snapshot with <code>XINFO GROUPS</code> and <code>XPENDING</code>. Run it from Inject or a schedule and pass <code>msg.payload</code> to a monitoring flow.</p>
+  <p>Optionally set <b>DLQ stream</b> to collect its <code>XLEN</code> as well. Output: <code>{stream, group, pending, deadLetterStream, deadLetterLength, consumers, lag, entriesRead, lastDeliveredId, sampledAt}</code>. <code>lag</code> may be <code>null</code> on older Redis versions.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-control — global runtime pause/drain control
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-control', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' }
+    },
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: 'redis streams control',
+    label: function () {
+      return this.name || 'redis streams control';
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-control">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-control">
+  <p>Controls all <code>redis xreadgroup</code> nodes in <b>this Node-RED runtime</b>. Accepts <code>msg.action</code>: <code>pause</code>, <code>resume</code>, <code>status</code>, <code>drain</code>.</p>
+  <p><code>status</code> returns every local consumer state, including <code>nodeId</code>, stream, group, PEL and paused. <code>pause</code> without filters stops all of them. To isolate one consumer, pass <code>msg.nodeId</code>; <code>msg.stream</code> and <code>msg.group</code> are also available.</p>
+  <p><code>drain</code> pauses selected consumers and waits until their own PEL reaches 0. Output contains <code>{drained, consumers: [...]}</code>.</p>
+</script>
+
+<script type="text/javascript">
+  // -----------------------------------------------------------------
+  // yroshcha-redis-stream-api — protected HTTP control plane
+  // -----------------------------------------------------------------
+  RED.nodes.registerType('yroshcha-redis-stream-api', {
+    category: REDIS_CATEGORY,
+    color: REDIS_COLOR,
+    icon: REDIS_ICON,
+    showLabel: false,
+    defaults: {
+      name: { value: '' },
+      enabled: { value: false },
+      requireToken: { value: false }
+    },
+    credentials: {
+      token: { type: 'password' }
+    },
+    inputs: 0,
+    outputs: 1,
+    paletteLabel: 'redis streams API',
+    label: function () {
+      return this.name || 'redis streams API';
+    },
+    onadd: function () { this.l = true; }
+  });
+</script>
+
+<script type="text/html" data-template-name="yroshcha-redis-stream-api">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Redis Streams control API">
+  </div>
+  <div class="form-row">
+    <label for="node-input-enabled" style="width:auto">
+      <input type="checkbox" id="node-input-enabled" style="width:auto; margin-right:8px">Enable HTTP API
+    </label>
+  </div>
+  <div class="form-row">
+    <label for="node-input-token"><i class="fa fa-key"></i> API token</label>
+    <input type="password" id="node-input-token" autocomplete="new-password">
+  </div>
+  <div class="form-row">
+    <label for="node-input-requireToken" style="width:auto" title="Require X-API-Key or Authorization: Bearer on every request">
+      <input type="checkbox" id="node-input-requireToken" style="width:auto; margin-right:8px">Require API token
+    </label>
+  </div>
+  <div class="form-tips" style="white-space:normal; overflow-wrap:anywhere; box-sizing:border-box;">
+    The API is disabled by default. After enabling, no token is required.
+  </div>
+</script>
+
+<script type="text/html" data-help-name="yroshcha-redis-stream-api">
+  <p>Self-contained HTTP control plane for all <code>redis xreadgroup</code> nodes in this Node-RED runtime. Use one node. The HTTP API is <b>disabled</b> by default; enable <b>Enable HTTP API</b> first.</p>
+  <p>After enabling, the API works without a token for a private network. If needed, enable <b>Require API token</b> and send it through <code>X-API-Key: &lt;token&gt;</code> or <code>Authorization: Bearer &lt;token&gt;</code>. If token protection is enabled but the token is empty, endpoints do not start.</p>
+  <p><code>GET /redis/streams/status</code> returns every local consumer state: <code>nodeId</code>, stream, group, PEL, consumer and paused.</p>
+  <p><code>POST /redis/streams/control</code> accepts JSON: <code>{"action":"pause"}</code> for all, or <code>{"action":"pause","nodeId":"..."}</code> for one node. <code>resume</code>, <code>status</code>, <code>drain</code>, <code>stream</code>/<code>group</code> filters and <code>drainTimeoutMs</code> are also available.</p>
+  <p>The node has no input; it only publishes the HTTP API. Its output mirrors HTTP results for debug or monitoring. Endpoints cover this runtime only; call each replica separately.</p>
+</script>
