@@ -36,7 +36,7 @@ cd ~/.node-red
 npm install @yroshcha/node-red-contrib-redis-full
 ```
 
-For a local archive, use `npm install /path/to/yroshcha-node-red-contrib-redis-full-1.0.0.tgz`.
+For a local archive, use `npm install /path/to/yroshcha-node-red-contrib-redis-full-<version>.tgz`.
 
 ## Connection model
 
@@ -45,7 +45,7 @@ For a local archive, use `npm install /path/to/yroshcha-node-red-contrib-redis-f
 
 ## Release status
 
-**`1.0.0` is the first stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
+**`1.0.2` is the current stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
 
 ## Production profile
 
@@ -149,8 +149,3 @@ Add one `redis streams API` node and enable **Enable HTTP API**. In a private ne
 - Sentinel: the config node supports only the `cluster` option (Redis Cluster through `Redis.Cluster`), not Sentinel-specific configuration.
 - WATCH-based optimistic locking: `redis multi` is not a replacement for that pattern.
 - Direct `prom-client` metrics: PEL alerts use `node.warn`; use `redis cmd: XPENDING` or `XINFO GROUPS` in a dedicated flow for Prometheus/Grafana collection.
-
-## Next improvements
-
-- Add Node-RED runtime/integration coverage with `node-red-node-test-helper` and testcontainers.
-- Add Sentinel support to the config node.

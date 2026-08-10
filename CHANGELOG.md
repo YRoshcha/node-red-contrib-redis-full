@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.0.2 — 2026-08-10
+
+Documentation-only patch release.
+
+### Changed
+
+- Removed internal roadmap content from the public README.
+
 ## 1.0.0 — 2026-08-10
 
 First stable public release.
@@ -25,4 +33,3 @@ First stable public release.
 - Node.js 18 or later.
 - Node-RED 3.x, 4.x, and 5.x.
 - Redis 6.2 or later is recommended for `XAUTOCLAIM`; the remaining functionality supports Redis versions compatible with ioredis 5.
-
