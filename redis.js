@@ -244,6 +244,11 @@ module.exports = function (RED) {
     node.mode = config.mode === 'psubscribe' ? 'psubscribe' : 'subscribe';
     node.channels = (config.channels || '').split(',').map((s) => s.trim()).filter(Boolean);
 
+    if (!node.channels.length) {
+      node.error('At least one Redis channel or pattern is required');
+      return;
+    }
+
     const client = node.server.getDedicatedClient();
     let subscribed = [];
     let stopped = false;
@@ -378,14 +383,18 @@ module.exports = function (RED) {
     if (!node.server) return;
 
     node.scanType = config.scanType || 'SCAN';
-    node.defaultCount = parseInt(config.count, 10) || 100;
+    node.defaultCount = Math.max(1, parseInt(config.count, 10) || 100);
+    // A cursor scan is non-blocking for Redis, but collecting an unbounded
+    // result into one Node-RED message can still exhaust the Node.js heap.
+    node.defaultMaxResults = Math.max(1, parseInt(config.maxResults, 10) || 10000);
 
     node.on('input', async function (msg, send, done) {
       send = send || function () { node.send.apply(node, arguments); };
       try {
         const scanType = (msg.scanType || node.scanType).toUpperCase();
         const match = msg.match;
-        const count = msg.count !== undefined ? msg.count : node.defaultCount;
+        const count = Math.max(1, parseInt(msg.count, 10) || node.defaultCount);
+        const maxResults = Math.max(1, parseInt(msg.maxResults, 10) || node.defaultMaxResults);
         const client = node.server.getClient();
 
         let key = null;
@@ -413,14 +422,22 @@ module.exports = function (RED) {
           if (scanType === 'HSCAN' || scanType === 'ZSCAN') {
             for (let i = 0; i < elements.length; i += 2) {
               collected.push({ member: elements[i], value: elements[i + 1] });
+              if (collected.length >= maxResults) break;
             }
           } else {
-            collected.push(...elements);
+            collected.push(...elements.slice(0, maxResults - collected.length));
           }
-        } while (cursor !== '0');
+        } while (cursor !== '0' && collected.length < maxResults);
 
         msg.payload = collected;
-        node.status({ fill: 'green', shape: 'dot', text: `${collected.length} items` });
+        msg.scanComplete = cursor === '0';
+        msg.scanTruncated = !msg.scanComplete;
+        if (msg.scanTruncated) {
+          node.status({ fill: 'yellow', shape: 'ring', text: `${collected.length} items (limit)` });
+          node.warn(`Redis ${scanType} stopped at the configured ${maxResults}-item limit`);
+        } else {
+          node.status({ fill: 'green', shape: 'dot', text: `${collected.length} items` });
+        }
         send(msg);
         done();
       } catch (err) {
@@ -463,6 +480,8 @@ module.exports = function (RED) {
         for (const [k, v] of Object.entries(payload)) {
           fields.push(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
         }
+
+        if (!fields.length) throw new Error('msg.payload must contain at least one field for XADD');
 
         const args = [streamKey];
         const maxlen = msg.maxlen !== undefined ? msg.maxlen : node.maxlen;
@@ -509,8 +528,8 @@ module.exports = function (RED) {
       || `${process.env.HOSTNAME || RED.settings.get('flowfile') || 'nr'}-${node.id}`;
     // 100 amortises Redis/network round-trips while Max pending still limits
     // the total work allowed into Node-RED.
-    node.count = parseInt(config.count, 10) || 100;
-    node.blockMs = parseInt(config.blockMs, 10) || 5000;
+    node.count = Math.max(1, parseInt(config.count, 10) || 100);
+    node.blockMs = Math.max(1, parseInt(config.blockMs, 10) || 5000);
     node.readIntervalMs = Math.max(0, parseInt(config.readIntervalMs, 10) || 0);
     node.rateLimitPerSecond = Math.max(0, parseFloat(config.rateLimitPerSecond) || 0);
     node.batchWindowMs = Math.max(0, parseInt(config.batchWindowMs, 10) || 0);
@@ -540,9 +559,9 @@ module.exports = function (RED) {
     // Backoff/jitter при помилках циклу — щоб при масовому падінні Redis
     // (рестарт кластера, failover) весь HPA-пул не долбив reconnect
     // синхронно одним і тим же інтервалом ("thundering herd").
-    node.initialBackoffMs = parseInt(config.initialBackoffMs, 10) || 500;
-    node.maxBackoffMs = parseInt(config.maxBackoffMs, 10) || 30000;
-    node.backoffMultiplier = parseFloat(config.backoffMultiplier) || 2;
+    node.initialBackoffMs = Math.max(50, parseInt(config.initialBackoffMs, 10) || 500);
+    node.maxBackoffMs = Math.max(node.initialBackoffMs, parseInt(config.maxBackoffMs, 10) || 30000);
+    node.backoffMultiplier = Math.max(1, parseFloat(config.backoffMultiplier) || 2);
 
     // PEL-alert: періодична неблокуюча перевірка розміру pending list через
     // XPENDING на СПІЛЬНОМУ з'єднанні конфігу (не на blockingClient, щоб не
@@ -593,8 +612,10 @@ module.exports = function (RED) {
 
       while (!stopped) {
         const candidate = node.server.getDedicatedClient({
-          // XREADGROUP BLOCK must not stay zombie after a silent network split.
-          blockingTimeout: node.blockMs + node.server.commandTimeout + 1000,
+          // commandTimeout applies to each Redis command. It must be longer
+          // than BLOCK, otherwise a valid idle XREADGROUP is reported as a
+          // timeout when an operator chooses BLOCK above the config timeout.
+          commandTimeout: Math.max(node.server.commandTimeout, node.blockMs + 1000),
           maxRetriesPerRequest: 1,
           autoResendUnfulfilledCommands: false
         });

@@ -273,7 +273,8 @@
       name: { value: '' },
       server: { type: 'yroshcha-redis-config', required: true },
       scanType: { value: 'SCAN' },
-      count: { value: 100, validate: RED.validators.number() }
+      count: { value: 100, validate: RED.validators.number() },
+      maxResults: { value: 10000, validate: RED.validators.number() }
     },
     inputs: 1,
     outputs: 1,
@@ -304,14 +305,18 @@
     <input type="text" id="node-input-count">
   </div>
   <div class="form-row">
+    <label for="node-input-maxResults" title="Maximum items returned in one Node-RED message">Result limit</label>
+    <input type="text" id="node-input-maxResults">
+  </div>
+  <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
     <input type="text" id="node-input-name">
   </div>
 </script>
 
 <script type="text/html" data-help-name="yroshcha-redis-scan">
-  <p>Full cursor-based non-blocking scan. HSCAN/SSCAN/ZSCAN require <code>msg.key</code>.</p>
-  <p>Output: <code>msg.payload</code> is an array; HSCAN/ZSCAN return <code>{member, value}</code>.</p>
+  <p>Cursor-based non-blocking scan. HSCAN/SSCAN/ZSCAN require <code>msg.key</code>. To protect the Node-RED heap, one invocation returns at most <b>Result limit</b> items (default 10000); override it with <code>msg.maxResults</code>.</p>
+  <p>Output: <code>msg.payload</code> is an array; HSCAN/ZSCAN return <code>{member, value}</code>. <code>msg.scanComplete</code> is false and <code>msg.scanTruncated</code> is true when the result limit was reached.</p>
 </script>
 
 <script type="text/javascript">

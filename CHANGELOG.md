@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.0.5 — 2026-08-11
+
+### Fixed
+
+- `redis xreadgroup` now raises the dedicated connection command timeout to cover its configured `BLOCK` duration, preventing a valid long poll from being reported as a timeout.
+- Stream consumer timing and backoff settings are bounded at runtime even when a malformed flow configuration bypasses editor validation.
+- `redis sub` now rejects an empty channel list instead of remaining indefinitely in a starting state.
+- `redis xadd` now reports an empty fields object before sending an invalid command to Redis.
+
+### Changed
+
+- `redis scan` now has a 10,000-item per-message safety limit by default. It exposes `msg.scanComplete` and `msg.scanTruncated` so a flow cannot mistake a bounded result for a complete scan.
+
 ## 1.0.4 — 2026-08-11
 
 ### Fixed

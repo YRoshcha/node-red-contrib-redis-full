@@ -133,6 +133,11 @@ test('stream consumer retries transient dedicated-client startup failures', () =
   assert.match(runtime, /if \(!await initializeBlockingClient\(\)\) return;/);
 });
 
+test('xreadgroup command timeout always covers its configured BLOCK duration', () => {
+  const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
+  assert.match(runtime, /commandTimeout: Math\.max\(node\.server\.commandTimeout, node\.blockMs \+ 1000\)/);
+});
+
 test('subscription retries transient startup failures without retrying arbitrary commands', () => {
   const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
   assert.match(runtime, /async function startSubscription\(\)/);
@@ -171,6 +176,50 @@ test('stream consumer can limit XREADGROUP frequency independently of queue dept
   assert.match(runtime, /async function waitForReadInterval\(\)/);
   assert.match(runtime, /if \(!await waitForReadInterval\(\)\) continue;/);
   assert.match(html, /Read interval \(ms\)/);
+});
+
+test('scan bounds one Node-RED message and marks a partial result explicitly', async () => {
+  const server = {
+    getClient() {
+      return {
+        async scan() { return ['42', ['a', 'b', 'c']]; }
+      };
+    }
+  };
+  const { types } = loadPalette(server);
+  const ScanNode = types.get('yroshcha-redis-scan').constructor;
+  const node = new ScanNode({ server: 'config', maxResults: 2 });
+  const output = await new Promise((resolve, reject) => {
+    node.emit('input', {}, resolve, (err) => err ? reject(err) : undefined);
+  });
+  assert.deepEqual(output.payload, ['a', 'b']);
+  assert.equal(output.scanComplete, false);
+  assert.equal(output.scanTruncated, true);
+});
+
+test('scan editor exposes a bounded result limit', () => {
+  const html = fs.readFileSync(require.resolve('../redis.html'), 'utf8');
+  assert.match(html, /node-input-maxResults/);
+  assert.match(html, /Result limit/);
+});
+
+test('xadd rejects an empty fields object before calling Redis', async () => {
+  let called = false;
+  const server = { getClient() { return { async xadd() { called = true; } }; } };
+  const { types } = loadPalette(server);
+  const StreamOutNode = types.get('yroshcha-redis-stream-out').constructor;
+  const node = new StreamOutNode({ server: 'config', streamKey: 'orders:events' });
+  await assert.rejects(new Promise((resolve, reject) => {
+    node.emit('input', { payload: {} }, resolve, (err) => err ? reject(err) : undefined);
+  }), /at least one field/);
+  assert.equal(called, false);
+});
+
+test('subscribe rejects an empty channel configuration without opening Redis', () => {
+  const server = { getDedicatedClient() { throw new Error('must not connect'); } };
+  const { types } = loadPalette(server);
+  const SubscribeNode = types.get('yroshcha-redis-subscribe').constructor;
+  new SubscribeNode({ server: 'config', channels: ' , ' });
 });
 
 test('palette labels and help text are English-only', () => {
