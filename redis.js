@@ -173,6 +173,10 @@ module.exports = function (RED) {
     return obj;
   }
 
+  function isNoGroupError(err) {
+    return String(err && err.message ? err.message : err).includes('NOGROUP');
+  }
+
   // ---------------------------------------------------------------------
   // yroshcha-redis-command — БУДЬ-ЯКА команда Redis через ioredis .call().
   // "block" форсує окреме з'єднання (для BLPOP/BRPOP/WAIT тощо).
@@ -961,6 +965,22 @@ module.exports = function (RED) {
           }
         } catch (err) {
           if (stopped) break;
+
+          // A Redis restart, a manual XGROUP DESTROY, or deletion of an empty
+          // DLQ stream can remove the group after this node has started.
+          // Recreate it before backing off; ensureGroup handles a concurrent
+          // creator through BUSYGROUP and is safe to call repeatedly.
+          if (isNoGroupError(err)) {
+            try {
+              await ensureGroup(blockingClient);
+              currentBackoffMs = node.initialBackoffMs;
+              node.status({ fill: 'yellow', shape: 'ring', text: 'consumer group restored' });
+              node.warn(`Redis stream consumer group restored: ${node.group}@${node.streamKey}`);
+              continue;
+            } catch (restoreErr) {
+              err = restoreErr;
+            }
+          }
 
           const jitter = Math.random() * currentBackoffMs * 0.3; // до +30%
           const delay = Math.min(currentBackoffMs, node.maxBackoffMs) + jitter;

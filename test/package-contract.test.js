@@ -138,6 +138,14 @@ test('xreadgroup command timeout always covers its configured BLOCK duration', (
   assert.match(runtime, /commandTimeout: Math\.max\(node\.server\.commandTimeout, node\.blockMs \+ 1000\)/);
 });
 
+test('xreadgroup restores a consumer group that disappears after startup', () => {
+  const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
+  assert.match(runtime, /function isNoGroupError\(err\)/);
+  assert.match(runtime, /if \(isNoGroupError\(err\)\)/);
+  assert.match(runtime, /await ensureGroup\(blockingClient\)/);
+  assert.match(runtime, /consumer group restored/);
+});
+
 test('subscription retries transient startup failures without retrying arbitrary commands', () => {
   const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
   assert.match(runtime, /async function startSubscription\(\)/);

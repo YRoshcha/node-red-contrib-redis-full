@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.0.6 — 2026-08-11
+
+### Fixed
+
+- `redis xreadgroup` now restores its consumer group with `MKSTREAM` when a running consumer receives `NOGROUP`, including a deleted or restarted DLQ stream.
+
 ## 1.0.5 — 2026-08-11
 
 ### Fixed

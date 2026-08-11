@@ -45,7 +45,7 @@ For a local archive, use `npm install /path/to/yroshcha-node-red-contrib-redis-f
 
 ## Release status
 
-**`1.0.5` is the current stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
+**`1.0.6` is the current stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
 
 ## Production profile
 
@@ -62,6 +62,7 @@ Safe consumer defaults and important settings:
 - **Max deliveries = 5.** After the limit is exceeded, an entry is atomically moved to `<stream>:dlq` and acknowledged. In Redis Cluster, source and DLQ keys must share a hash tag, for example `orders:{eu}` and `orders:{eu}:dlq`.
 - **Start paused (wait for resume)** makes a consumer create/verify its group without calling `XREADGROUP`. It takes no work until a control-plane `resume` request arrives; use it for controlled pod startup after readiness checks.
 - Startup initialisation retries a failed dedicated connection, `XGROUP CREATE`, and the initial `SUBSCRIBE` up to **five times** with exponential backoff and jitter. A transient Redis/TLS/DNS delay does not permanently stop a new consumer or subscriber.
+- If a consumer group disappears after startup (for example after a Redis restart, `XGROUP DESTROY`, or deleting an empty DLQ stream), `redis xreadgroup` recreates it with `MKSTREAM` and resumes.
 - `redis xautoclaim` limits each manual recovery run through `Run limit` (default 1000), avoiding oversized Node-RED payloads.
 - `redis scan` limits one emitted Node-RED message to **10,000** items by default. It sets `msg.scanTruncated = true` when that safety limit is reached; raise `Result limit` / `msg.maxResults` only after sizing the Node-RED heap for the result.
 - `MAXLEN` in `redis xadd` remains blocked until **Allow unsafe MAXLEN trim** is explicitly confirmed. Trimming can remove a payload still represented in a PEL.
