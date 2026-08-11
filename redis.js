@@ -246,6 +246,7 @@ module.exports = function (RED) {
 
     const client = node.server.getDedicatedClient();
     let subscribed = [];
+    let stopped = false;
 
     const eventName = node.mode === 'psubscribe' ? 'pmessage' : 'message';
     client.on(eventName, (a, b, c) => {
@@ -271,10 +272,40 @@ module.exports = function (RED) {
       node.status({ fill: 'green', shape: 'dot', text: `listening (${subscribed.length})` });
     }
 
-    doSubscribe(node.channels).catch((err) => {
-      node.status({ fill: 'red', shape: 'ring', text: 'subscribe failed' });
-      node.error(`Redis subscribe failed: ${err.message}`);
-    });
+    async function startSubscription() {
+      // SUBSCRIBE is idempotent for an already subscribed channel. Retrying it
+      // is therefore safe when Redis accepted the command but its reply was
+      // lost to a timeout during pod startup.
+      const maxStartupRetries = 5;
+      let retries = 0;
+      let delayMs = 500;
+
+      while (!stopped) {
+        try {
+          await doSubscribe(node.channels);
+          return;
+        } catch (err) {
+          if (retries >= maxStartupRetries) {
+            node.status({ fill: 'red', shape: 'ring', text: 'subscribe failed' });
+            node.error(`Redis subscribe failed after ${maxStartupRetries} retries: ${err.message}`);
+            return;
+          }
+
+          const jitter = Math.random() * delayMs * 0.3;
+          const delay = Math.min(delayMs, node.server.retryMaxDelay) + jitter;
+          retries += 1;
+          node.status({ fill: 'red', shape: 'ring', text: `subscribe retry ${retries}/${maxStartupRetries}` });
+          node.warn(
+            `Redis subscribe startup attempt ${retries}/${maxStartupRetries} failed: ${err.message}; ` +
+            `retrying in ${Math.round(delay)}ms`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          delayMs = Math.min(delayMs * 2, node.server.retryMaxDelay);
+        }
+      }
+    }
+
+    startSubscription();
 
     node.on('input', async function (msg, send, done) {
       try {
@@ -287,6 +318,7 @@ module.exports = function (RED) {
     });
 
     node.on('close', async function (done) {
+      stopped = true;
       try { await client.quit(); } catch (e) { /* ignore */ }
       node.status({});
       done();
@@ -552,6 +584,50 @@ module.exports = function (RED) {
       }
     }
 
+    async function initializeBlockingClient() {
+      // A new pod can reach Node-RED before its Redis route, TLS handshake, or
+      // ElastiCache endpoint is ready. Do not permanently lose the consumer
+      // on one transient startup timeout. Five retries means six total tries.
+      const maxStartupRetries = 5;
+      let retries = 0;
+
+      while (!stopped) {
+        const candidate = node.server.getDedicatedClient({
+          // XREADGROUP BLOCK must not stay zombie after a silent network split.
+          blockingTimeout: node.blockMs + node.server.commandTimeout + 1000,
+          maxRetriesPerRequest: 1,
+          autoResendUnfulfilledCommands: false
+        });
+        candidate.on('error', (err) => {
+          node.status({ fill: 'red', shape: 'ring', text: 'redis error' });
+          node.error(`Redis stream-in error: ${err.message}`);
+        });
+
+        try {
+          await ensureGroup(candidate);
+          blockingClient = candidate;
+          return true;
+        } catch (err) {
+          try { candidate.disconnect(false); } catch (e) { /* ignore */ }
+          if (retries >= maxStartupRetries) {
+            throw new Error(`Startup failed after ${maxStartupRetries} retries: ${err.message}`);
+          }
+
+          const jitter = Math.random() * currentBackoffMs * 0.3;
+          const delay = Math.min(currentBackoffMs, node.maxBackoffMs) + jitter;
+          retries += 1;
+          node.status({ fill: 'red', shape: 'ring', text: `startup retry ${retries}/${maxStartupRetries}` });
+          node.warn(
+            `Redis stream-in startup attempt ${retries}/${maxStartupRetries} failed: ${err.message}; ` +
+            `retrying in ${Math.round(delay)}ms`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          currentBackoffMs = Math.min(currentBackoffMs * node.backoffMultiplier, node.maxBackoffMs);
+        }
+      }
+      return false;
+    }
+
     async function waitForReadInterval() {
       if (!node.readIntervalMs || !lastReadAt) return true;
       const waitMs = node.readIntervalMs - (Date.now() - lastReadAt);
@@ -802,18 +878,7 @@ module.exports = function (RED) {
     streamConsumers.set(node.id, node);
 
     async function loop() {
-      blockingClient = node.server.getDedicatedClient({
-        // XREADGROUP BLOCK must not stay zombie after a silent network split.
-        blockingTimeout: node.blockMs + node.server.commandTimeout + 1000,
-        maxRetriesPerRequest: 1,
-        autoResendUnfulfilledCommands: false
-      });
-      blockingClient.on('error', (err) => {
-        node.status({ fill: 'red', shape: 'ring', text: 'redis error' });
-        node.error(`Redis stream-in error: ${err.message}`);
-      });
-
-      await ensureGroup(blockingClient);
+      if (!await initializeBlockingClient()) return;
       node.status({
         fill: paused ? 'yellow' : 'green',
         shape: paused ? 'ring' : 'dot',

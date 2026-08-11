@@ -1,6 +1,6 @@
 {
   "name": "@yroshcha/node-red-contrib-redis-full",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Production-oriented Redis palette for Node-RED: generic commands, Pub/Sub, scans, transactions, and Redis Streams consumer groups.",
   "keywords": ["node-red", "redis", "redis-streams", "pubsub", "xadd", "xreadgroup", "ioredis"],
   "license": "MIT",

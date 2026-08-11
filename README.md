@@ -45,7 +45,7 @@ For a local archive, use `npm install /path/to/yroshcha-node-red-contrib-redis-f
 
 ## Release status
 
-**`1.0.2` is the current stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
+**`1.0.4` is the current stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
 
 ## Production profile
 
@@ -61,6 +61,7 @@ Safe consumer defaults and important settings:
 - **Batch interval (ms)** sets the minimum delay between emitted batches regardless of queue depth. For one batch of up to 50 entries per second, use `COUNT = 50` and `Batch interval = 1000`.
 - **Max deliveries = 5.** After the limit is exceeded, an entry is atomically moved to `<stream>:dlq` and acknowledged. In Redis Cluster, source and DLQ keys must share a hash tag, for example `orders:{eu}` and `orders:{eu}:dlq`.
 - **Start paused (wait for resume)** makes a consumer create/verify its group without calling `XREADGROUP`. It takes no work until a control-plane `resume` request arrives; use it for controlled pod startup after readiness checks.
+- Startup initialisation retries a failed dedicated connection, `XGROUP CREATE`, and the initial `SUBSCRIBE` up to **five times** with exponential backoff and jitter. A transient Redis/TLS/DNS delay does not permanently stop a new consumer or subscriber.
 - `redis xautoclaim` limits each manual recovery run through `Run limit` (default 1000), avoiding oversized Node-RED payloads.
 - `MAXLEN` in `redis xadd` remains blocked until **Allow unsafe MAXLEN trim** is explicitly confirmed. Trimming can remove a payload still represented in a PEL.
 

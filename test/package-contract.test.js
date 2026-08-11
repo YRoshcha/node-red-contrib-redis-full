@@ -76,7 +76,7 @@ test('registers all public Redis node types', () => {
 
 test('package metadata is ready for a public stable release', () => {
   const pkg = JSON.parse(fs.readFileSync(require.resolve('../package.json'), 'utf8'));
-  assert.equal(pkg.version, '1.0.0');
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
   assert.equal(pkg.license, 'MIT');
   assert.match(pkg.repository.url, /^git\+https:\/\/github\.com\/yroshcha\/node-red-contrib-redis-full\.git$/);
   assert.match(pkg.bugs.url, /github\.com\/yroshcha\/node-red-contrib-redis-full\/issues$/);
@@ -89,7 +89,8 @@ test('package metadata is ready for a public stable release', () => {
 test('public README is English-only and documents the stable release', () => {
   const readme = fs.readFileSync(require.resolve('../README.md'), 'utf8');
   assert.doesNotMatch(readme, /[А-Яа-яІіЇїЄєҐґ]/);
-  assert.match(readme, /\*\*`1\.0\.0` is the first stable release\.\*\*/);
+  assert.match(readme, /\*\*`\d+\.\d+\.\d+` is the current stable release\.\*\*/);
+  assert.doesNotMatch(readme, /Next improvements/);
 });
 
 test('config client has finite failure bounds and explicit timeouts', () => {
@@ -122,6 +123,21 @@ test('stream consumer can start paused until a control-plane resume', () => {
   assert.match(runtime, /node\.startPaused = !!config\.startPaused/);
   assert.match(runtime, /let paused = node\.startPaused/);
   assert.match(html, /Start paused \(wait for resume\)/);
+});
+
+test('stream consumer retries transient dedicated-client startup failures', () => {
+  const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
+  assert.match(runtime, /async function initializeBlockingClient\(\)/);
+  assert.match(runtime, /const maxStartupRetries = 5/);
+  assert.match(runtime, /Startup failed after \$\{maxStartupRetries\} retries/);
+  assert.match(runtime, /if \(!await initializeBlockingClient\(\)\) return;/);
+});
+
+test('subscription retries transient startup failures without retrying arbitrary commands', () => {
+  const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
+  assert.match(runtime, /async function startSubscription\(\)/);
+  assert.match(runtime, /Redis subscribe failed after \$\{maxStartupRetries\} retries/);
+  assert.match(runtime, /startSubscription\(\);/);
 });
 
 test('stream consumer has an optional unlimited-by-default delivery rate limit', () => {

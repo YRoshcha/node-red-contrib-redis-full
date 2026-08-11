@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.0.4 — 2026-08-11
+
+### Fixed
+
+- `redis sub` now retries its initial subscription up to five times with backoff and jitter instead of remaining permanently unsubscribed after one transient timeout.
+
+## 1.0.3 — 2026-08-11
+
+### Fixed
+
+- `redis xreadgroup` now retries dedicated-connection startup and consumer-group initialisation up to five times with backoff and jitter instead of stopping after one transient timeout.
+
 ## 1.0.2 — 2026-08-10
 
 Documentation-only patch release.
