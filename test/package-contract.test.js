@@ -153,6 +153,17 @@ test('subscription retries transient startup failures without retrying arbitrary
   assert.match(runtime, /startSubscription\(\);/);
 });
 
+test('redis sub restores continuous BLPOP and BRPOP list intake modes', () => {
+  const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
+  const html = fs.readFileSync(require.resolve('../redis.html'), 'utf8');
+  assert.match(runtime, /\['subscribe', 'psubscribe', 'blpop', 'brpop'\]/);
+  assert.match(runtime, /async function startListPop\(\)/);
+  assert.match(runtime, /client\[method\]\(node\.topic, node\.timeout\)/);
+  assert.match(html, /BLPOP \(left side of list\)/);
+  assert.match(html, /BRPOP \(right side of list\)/);
+  assert.match(html, /node-input-topic/);
+});
+
 test('stream consumer has an optional unlimited-by-default delivery rate limit', () => {
   const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
   const html = fs.readFileSync(require.resolve('../redis.html'), 'utf8');
@@ -342,6 +353,14 @@ test('xreadgroup output carries internal ACK routing metadata', () => {
   const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
   assert.match(runtime, /_streamKey: node\.streamKey/);
   assert.match(runtime, /_streamGroup: node\.group/);
+});
+
+test('stream consumers restore nested JSON fields written by xadd', () => {
+  const runtime = fs.readFileSync(require.resolve('../redis.js'), 'utf8');
+  assert.match(runtime, /function parseStreamFields\(flat\)/);
+  assert.match(runtime, /obj\[field\] = JSON\.parse\(value\)/);
+  assert.match(runtime, /const payload = parseStreamFields\(flat\)/);
+  assert.match(runtime, /payload: parseStreamFields\(flat\)/);
 });
 
 test('empty consumer name includes the Node-RED node id', () => {

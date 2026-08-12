@@ -181,13 +181,24 @@
       name: { value: '' },
       server: { type: 'yroshcha-redis-config', required: true },
       mode: { value: 'subscribe' },
-      channels: { value: '' }
+      channels: { value: '' },
+      topic: { value: '' },
+      timeout: { value: 0, validate: RED.validators.number() }
     },
     inputs: 1,
     outputs: 1,
     paletteLabel: 'redis sub',
     label: function () {
       return this.name || 'redis ' + this.mode;
+    },
+    oneditprepare: function () {
+      const updateMode = () => {
+        const isList = ['blpop', 'brpop'].includes($('#node-input-mode').val());
+        $('.redis-sub-channels-row').toggle(!isList);
+        $('.redis-sub-list-row').toggle(isList);
+      };
+      $('#node-input-mode').on('change', updateMode);
+      updateMode();
     },
     onadd: function () { this.l = true; }
   });
@@ -203,11 +214,21 @@
     <select id="node-input-mode">
       <option value="subscribe">SUBSCRIBE (exact channels)</option>
       <option value="psubscribe">PSUBSCRIBE (patterns)</option>
+      <option value="blpop">BLPOP (left side of list)</option>
+      <option value="brpop">BRPOP (right side of list)</option>
     </select>
   </div>
-  <div class="form-row">
+  <div class="form-row redis-sub-channels-row">
     <label for="node-input-channels">Channels</label>
     <input type="text" id="node-input-channels" placeholder="comma-separated, e.g. app:notify, app:alerts">
+  </div>
+  <div class="form-row redis-sub-list-row">
+    <label for="node-input-topic">Topic</label>
+    <input type="text" id="node-input-topic" placeholder="Redis list key, e.g. events">
+  </div>
+  <div class="form-row redis-sub-list-row">
+    <label for="node-input-timeout">Timeout (sec)</label>
+    <input type="text" id="node-input-timeout" placeholder="0 = wait indefinitely">
   </div>
   <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
@@ -216,9 +237,9 @@
 </script>
 
 <script type="text/html" data-help-name="yroshcha-redis-subscribe">
-  <p>Subscribes with <code>SUBSCRIBE</code>/<code>PSUBSCRIBE</code> on a dedicated connection.</p>
-  <p>Output: <code>msg.topic</code>, <code>msg.payload</code>, and <code>msg.pattern</code> for pattern subscriptions.</p>
-  <p>Dynamic control: <code>msg.subscribe</code>/<code>msg.unsubscribe</code> are arrays of channels.</p>
+  <p>Uses a dedicated connection for <code>SUBSCRIBE</code>/<code>PSUBSCRIBE</code> or continuous <code>BLPOP</code>/<code>BRPOP</code> list intake.</p>
+  <p>For Pub/Sub, enter comma-separated Channels. Output: <code>msg.topic</code>, <code>msg.payload</code>, and <code>msg.pattern</code> for pattern subscriptions. Dynamic control: <code>msg.subscribe</code>/<code>msg.unsubscribe</code> are arrays of channels.</p>
+  <p>For BLPOP/BRPOP, enter one Redis list key as Topic. The node continuously emits each popped value as <code>msg.payload</code> and the list key as <code>msg.topic</code>. Timeout is in seconds; <code>0</code> waits indefinitely.</p>
 </script>
 
 <script type="text/javascript">

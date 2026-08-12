@@ -17,7 +17,7 @@ Every node type is prefixed with `yroshcha-redis-*`; the palette category is uni
 | Palette label | Type | Redis command(s) | Purpose |
 |---|---|---|---|
 | `redis cmd` | `yroshcha-redis-command` | any | Runs a generic command through `.call()`. `Block` forces a dedicated connection for commands such as `BLPOP`, `BRPOP`, or `WAIT`. |
-| `redis sub` | `yroshcha-redis-subscribe` | `SUBSCRIBE` / `PSUBSCRIBE` | Pub/Sub on a dedicated connection. Supports dynamic subscribe/unsubscribe through `msg.subscribe` and `msg.unsubscribe`. |
+| `redis sub` | `yroshcha-redis-subscribe` | `SUBSCRIBE` / `PSUBSCRIBE` / `BLPOP` / `BRPOP` | Pub/Sub or continuous Redis List intake on a dedicated connection. Pub/Sub supports dynamic subscribe/unsubscribe through `msg.subscribe` and `msg.unsubscribe`. |
 | `redis multi` | `yroshcha-redis-multi` | `MULTI` / `EXEC` | Atomic transaction from a command list. |
 | `redis scan` | `yroshcha-redis-scan` | `SCAN` / `HSCAN` / `SSCAN` / `ZSCAN` | Cursor-based non-blocking scan. |
 | `redis xadd` | `yroshcha-redis-stream-out` | `XADD` | Publishes to a stream. `MAXLEN` requires explicit unsafe confirmation. |
@@ -41,11 +41,11 @@ For a local archive, use `npm install /path/to/yroshcha-node-red-contrib-redis-f
 ## Connection model
 
 - `yroshcha-redis-config` keeps one shared ioredis client (`getClient()`) for non-blocking nodes: `redis cmd` (without `Block`), `redis multi`, `redis scan`, `redis xadd`, `redis xack`, `redis xautoclaim`, `redis consumer gc`, and `redis stream metrics`.
-- Blocking operations use a dedicated connection (`getDedicatedClient()`): `redis sub`, `redis xreadgroup`, and `redis cmd` when `Block` is enabled.
+- Blocking operations use a dedicated connection (`getDedicatedClient()`): `redis sub` (including BLPOP/BRPOP), `redis xreadgroup`, and `redis cmd` when `Block` is enabled.
 
 ## Release status
 
-**`1.0.6` is the current stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
+**`1.0.8` is the current stable release.** See [CHANGELOG.md](CHANGELOG.md) for release notes and compatibility information.
 
 ## Production profile
 
@@ -58,6 +58,7 @@ Safe consumer defaults and important settings:
 - **Rate limit (msg/s) = 0** is unlimited. For example, `500` limits average downstream delivery to 500 events per second.
 - **Read interval (ms) = 0** reads as fast as Redis responds. `1000` calls `XREADGROUP` no more often than once per second, independent of queue depth.
 - **Batch wait (ms) = 0** emits one event at a time. With a positive value, the node emits an array once it has collected `COUNT` events or the wait expires. `msg.payload` and `msg.streamId` become arrays.
+- Nested object and array fields written by `redis xadd` are automatically decoded from JSON by `redis xreadgroup` and `redis xautoclaim`; scalar Redis fields remain strings.
 - **Batch interval (ms)** sets the minimum delay between emitted batches regardless of queue depth. For one batch of up to 50 entries per second, use `COUNT = 50` and `Batch interval = 1000`.
 - **Max deliveries = 5.** After the limit is exceeded, an entry is atomically moved to `<stream>:dlq` and acknowledged. In Redis Cluster, source and DLQ keys must share a hash tag, for example `orders:{eu}` and `orders:{eu}:dlq`.
 - **Start paused (wait for resume)** makes a consumer create/verify its group without calling `XREADGROUP`. It takes no work until a control-plane `resume` request arrives; use it for controlled pod startup after readiness checks.
@@ -116,7 +117,7 @@ Run `redis consumer gc` from an input message, typically a scheduled Inject node
 ## Choosing a node
 
 - Read or write a single Redis value/command: `redis cmd`.
-- Broadcast delivery without persistence: `redis sub`.
+- Broadcast delivery without persistence: `redis sub` in SUBSCRIBE/PSUBSCRIBE mode. For a simple Redis List queue, select BLPOP/BRPOP in the same node; it continuously reads the configured Topic without a feedback loop.
 - Atomic command list without WATCH: `redis multi`.
 - Scan keys or fields without blocking Redis: `redis scan`.
 - Reliable delivery with consumer groups, ACK, and recovery: `redis xadd` → `redis xreadgroup` → `redis xack`. Keep `redis xautoclaim` for manual recovery and `redis consumer gc` for periodic cleanup.

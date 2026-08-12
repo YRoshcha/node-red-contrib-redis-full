@@ -173,6 +173,22 @@ module.exports = function (RED) {
     return obj;
   }
 
+  function parseStreamFields(flat) {
+    const obj = parseFlatFields(flat);
+    for (const [field, value] of Object.entries(obj)) {
+      // redis xadd serialises nested objects and arrays to JSON. Restore only
+      // these compound JSON values; scalar strings such as "true", "42", or
+      // "null" remain strings and preserve Redis field semantics.
+      if (typeof value !== 'string' || !/^[\[{]/.test(value.trim())) continue;
+      try {
+        obj[field] = JSON.parse(value);
+      } catch (_) {
+        // A value that merely looks like JSON is still a valid Redis string.
+      }
+    }
+    return obj;
+  }
+
   function isNoGroupError(err) {
     return String(err && err.message ? err.message : err).includes('NOGROUP');
   }
@@ -237,7 +253,7 @@ module.exports = function (RED) {
   RED.nodes.registerType('yroshcha-redis-command', RedisCommandNode);
 
   // ---------------------------------------------------------------------
-  // yroshcha-redis-subscribe — SUBSCRIBE/PSUBSCRIBE, завжди на окремому з'єднанні.
+  // yroshcha-redis-subscribe — Pub/Sub and blocking List intake on a dedicated connection.
   // ---------------------------------------------------------------------
   function RedisSubscribeNode(config) {
     RED.nodes.createNode(this, config);
@@ -245,25 +261,42 @@ module.exports = function (RED) {
     node.server = getServer(node, config);
     if (!node.server) return;
 
-    node.mode = config.mode === 'psubscribe' ? 'psubscribe' : 'subscribe';
+    node.mode = ['subscribe', 'psubscribe', 'blpop', 'brpop'].includes(config.mode)
+      ? config.mode
+      : 'subscribe';
     node.channels = (config.channels || '').split(',').map((s) => s.trim()).filter(Boolean);
+    node.topic = (config.topic || '').trim();
+    // Redis list blocking timeout is expressed in seconds. Zero means block
+    // indefinitely, therefore commandTimeout must be disabled for that client.
+    node.timeout = Math.max(0, parseInt(config.timeout, 10) || 0);
+    const isListPop = node.mode === 'blpop' || node.mode === 'brpop';
 
-    if (!node.channels.length) {
+    if (!isListPop && !node.channels.length) {
       node.error('At least one Redis channel or pattern is required');
       return;
     }
+    if (isListPop && !node.topic) {
+      node.error('A Redis list key (Topic) is required for BLPOP/BRPOP');
+      return;
+    }
 
-    const client = node.server.getDedicatedClient();
+    const client = node.server.getDedicatedClient(isListPop ? {
+      commandTimeout: node.timeout ? Math.max(node.server.commandTimeout, node.timeout * 1000 + 1000) : undefined,
+      maxRetriesPerRequest: 1,
+      autoResendUnfulfilledCommands: false
+    } : undefined);
     let subscribed = [];
     let stopped = false;
 
-    const eventName = node.mode === 'psubscribe' ? 'pmessage' : 'message';
-    client.on(eventName, (a, b, c) => {
-      const outMsg = node.mode === 'psubscribe'
-        ? { pattern: a, topic: b, payload: c }
-        : { topic: a, payload: b };
-      node.send(outMsg);
-    });
+    if (!isListPop) {
+      const eventName = node.mode === 'psubscribe' ? 'pmessage' : 'message';
+      client.on(eventName, (a, b, c) => {
+        const outMsg = node.mode === 'psubscribe'
+          ? { pattern: a, topic: b, payload: c }
+          : { topic: a, payload: b };
+        node.send(outMsg);
+      });
+    }
 
     async function doSubscribe(channels) {
       if (!channels.length) return;
@@ -314,10 +347,41 @@ module.exports = function (RED) {
       }
     }
 
-    startSubscription();
+    async function startListPop() {
+      // A list pop is intentionally a continuous source node: Redis returns
+      // one item and the next call begins immediately. Unlike a generic cmd
+      // node, users do not need to wire an output back into its input.
+      const method = node.mode;
+      let delayMs = 500;
+      node.status({ fill: 'green', shape: 'dot', text: `waiting (${method.toUpperCase()})` });
+      while (!stopped) {
+        try {
+          const result = await client[method](node.topic, node.timeout);
+          delayMs = 500;
+          if (!result || stopped) continue;
+          const [key, value] = result;
+          node.status({ fill: 'green', shape: 'dot', text: `received (${method.toUpperCase()})` });
+          node.send({ topic: key, payload: value });
+        } catch (err) {
+          if (stopped) break;
+          const delay = Math.min(delayMs, node.server.retryMaxDelay) + Math.random() * delayMs * 0.3;
+          node.status({ fill: 'red', shape: 'ring', text: `retry in ${Math.round(delay)}ms` });
+          node.error(`Redis ${method.toUpperCase()} error: ${err.message}`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          delayMs = Math.min(delayMs * 2, node.server.retryMaxDelay);
+        }
+      }
+    }
+
+    if (isListPop) startListPop();
+    else startSubscription();
 
     node.on('input', async function (msg, send, done) {
       try {
+        if (isListPop) {
+          done();
+          return;
+        }
         if (Array.isArray(msg.subscribe) && msg.subscribe.length) await doSubscribe(msg.subscribe);
         if (Array.isArray(msg.unsubscribe) && msg.unsubscribe.length) await doUnsubscribe(msg.unsubscribe);
         done();
@@ -820,7 +884,7 @@ module.exports = function (RED) {
       if (!Array.isArray(flat)) {
         throw new Error(`Stream entry ${id} no longer has a payload; do not trim streams below the PEL horizon`);
       }
-      const payload = parseFlatFields(flat);
+      const payload = parseStreamFields(flat);
       if (checkDeliveryCount && await shouldDeadLetter(id, payload)) return;
       if (!await waitForDeliverySlot() || paused) return false;
 
@@ -1125,7 +1189,7 @@ module.exports = function (RED) {
           const [nextCursor, entries] = res;
           cursor = nextCursor;
           for (const [id, flat] of entries || []) {
-            claimed.push({ streamId: id, payload: parseFlatFields(flat) });
+            claimed.push({ streamId: id, payload: parseStreamFields(flat) });
           }
         } while (cursor !== '0' && claimed.length < node.maxMessages);
 

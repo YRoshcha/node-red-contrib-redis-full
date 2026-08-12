@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.0.8 — 2026-08-12
+
+### Fixed
+
+- `redis xreadgroup` and `redis xautoclaim` now restore nested object and array fields that were serialised by `redis xadd`, while preserving scalar Redis fields as strings.
+
+## 1.0.7 — 2026-08-12
+
+### Added
+
+- Restored continuous `BLPOP` and `BRPOP` modes in `redis sub`, compatible with the original Redis input node workflow. Configure a list key as Topic and an optional timeout in seconds; the node keeps reading on its dedicated connection.
+
 ## 1.0.6 — 2026-08-11
 
 ### Fixed
